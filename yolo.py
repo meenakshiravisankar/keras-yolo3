@@ -25,7 +25,7 @@ class YOLO(object):
         "classes_path": 'model_data/coco_classes.txt',
         "score" : 0.3,
         "iou" : 0.45,
-        "model_image_size" : (416, 416),
+        "model_image_size" : (256, 256),
         "gpu_num" : 1,
     }
 
@@ -130,6 +130,7 @@ class YOLO(object):
                     size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
         thickness = (image.size[0] + image.size[1]) // 300
 
+        detected_labels = []
         for i, c in reversed(list(enumerate(out_classes))):
             predicted_class = self.class_names[c]
             box = out_boxes[i]
@@ -145,6 +146,7 @@ class YOLO(object):
             bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
             right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
             print(label, (left, top), (right, bottom))
+            detected_labels.append([label, left, top, right, bottom])
 
             if top - label_size[1] >= 0:
                 text_origin = np.array([left, top - label_size[1]])
@@ -164,7 +166,7 @@ class YOLO(object):
 
         end = timer()
         print(end - start)
-        return image
+        return image, detected_labels
 
     def close_session(self):
         self.sess.close()
@@ -191,7 +193,7 @@ def detect_video(yolo, video_path, output_path=""):
         if not return_value :
             break
         image = Image.fromarray(frame)
-        image = yolo.detect_image(image)
+        image, labels = yolo.detect_image(image)
         result = np.asarray(image)
         curr_time = timer()
         exec_time = curr_time - prev_time
@@ -205,6 +207,24 @@ def detect_video(yolo, video_path, output_path=""):
         cv2.putText(result, text=fps, org=(3, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                     fontScale=0.50, color=(255, 0, 0), thickness=2)
         cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+        
+        # Display results
+        height = result.shape[0]
+        width = result.shape[1]
+        # result = cv2.line(result,(width-300,0),(width-300,height),(0,0,255),5)
+        print(labels)
+
+        img = np.zeros((512,512,3), np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(img,'Vehicles',(5,50), font, 1,(255,255,255),2,8)
+        cv2.putText(img,'Current : '+str(current_vehicles),(5,120), font, 0.9,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Total   : '+str(total_vehicles),(5,170), font, 0.9,(255,255,255),2,cv2.LINE_AA)
+
+        cv2.putText(img,'Pedestrians',(5,330), font, 1,(255,255,255),2,8)
+        cv2.putText(img,'Current : '+str(current_pedestrians),(5,400), font, 0.9,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Total   : '+str(total_pedestrians),(5,450), font, 0.9,(255,255,255),2,cv2.LINE_AA)
+
+        cv2.imshow('Traffic Analysis',img)
         cv2.imshow("result", result)
         if isOutput:
             out.write(result)
