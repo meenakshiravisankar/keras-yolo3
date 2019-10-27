@@ -4,7 +4,7 @@ Class definition of YOLO_v3 style detection model on image and video
 """
 
 import colorsys
-import os
+import numpy as np
 from timeit import default_timer as timer
 
 import numpy as np
@@ -130,12 +130,16 @@ class YOLO(object):
                     size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
         thickness = (image.size[0] + image.size[1]) // 300
 
-        detected_labels = []
+        vehicle_labels = []
+        pedestrian_labels = []
+
         for i, c in reversed(list(enumerate(out_classes))):
             predicted_class = self.class_names[c]
             box = out_boxes[i]
             score = out_scores[i]
-
+            # thresholding to avoid misclassification of same object
+            if score < 0.5 :
+                continue
             label = '{} {:.2f}'.format(predicted_class, score)
             draw = ImageDraw.Draw(image)
             label_size = draw.textsize(label, font)
@@ -146,7 +150,12 @@ class YOLO(object):
             bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
             right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
             print(label, (left, top), (right, bottom))
-            detected_labels.append([label, left, top, right, bottom])
+
+            label_vehicles = ["car", "motorbike", "bus", "truck", "bicycle"]
+            if predicted_class in label_vehicles :
+                vehicle_labels.append([predicted_class, left, top, right, bottom])
+            elif predicted_class == "person" :
+                pedestrian_labels.append([predicted_class, left, top, right, bottom])
 
             if top - label_size[1] >= 0:
                 text_origin = np.array([left, top - label_size[1]])
@@ -166,7 +175,7 @@ class YOLO(object):
 
         end = timer()
         print(end - start)
-        return image, detected_labels
+        return image, np.array(vehicle_labels), np.array(pedestrian_labels)
 
     def close_session(self):
         self.sess.close()
@@ -211,8 +220,15 @@ def detect_video(yolo, video_path, output_path=""):
         # Display results
         height = result.shape[0]
         width = result.shape[1]
-        # result = cv2.line(result,(width-300,0),(width-300,height),(0,0,255),5)
+        # Required classes for vehicle detection
+        result = cv2.line(result,(width-300,0),(width-300,height),(0,0,255),5)
+        result = cv2.line(result,(0,int(height/2)),(width,int(height/2)),(255,0,0),5)
+
         print(labels)
+        current_vehicles = 0
+        total_vehicles = 0
+        current_pedestrians = 0
+        total_pedestrians = 0
 
         img = np.zeros((512,512,3), np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
