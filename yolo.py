@@ -18,6 +18,8 @@ from yolo3.utils import letterbox_image
 import os
 from keras.utils import multi_gpu_model
 
+import pytesseract
+
 class YOLO(object):
     _defaults = {
         "model_path": 'model_data/yolo.h5',
@@ -151,7 +153,7 @@ class YOLO(object):
             right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
             print(label, (left, top), (right, bottom))
 
-            label_vehicles = ["car", "motorbike", "bus", "truck", "bicycle"]
+            label_vehicles = ["car", "motorbike", "bus", "truck"]
             if predicted_class in label_vehicles :
                 vehicle_labels.append([predicted_class, left, top, right, bottom])
             elif predicted_class == "person" :
@@ -180,6 +182,24 @@ class YOLO(object):
     def close_session(self):
         self.sess.close()
 
+def get_videotime(frame) :
+    """
+    Crops the time-in-video information and returns the timestamp
+    
+    Parameters
+    ----------
+    frame - Entire traffic image with timestamp
+
+    Returns
+    -------
+    text - Text with timestamp details
+    """
+    # Crop the time portion
+    frame = frame[0:25,0:220]
+    # perform ocr
+    text = pytesseract.image_to_string(frame)  
+    return text
+        
 def detect_video(yolo, video_path, output_path=""):
     import cv2
     vid = cv2.VideoCapture(video_path)
@@ -199,14 +219,24 @@ def detect_video(yolo, video_path, output_path=""):
     prev_time = timer()
 
     current_vehicles = 0
-    total_vehicles = 0
+    total_left_vehicles = 0
+    total_right_vehicles = 0
+    
     current_pedestrians = 0
     total_pedestrians = 0
     
+    activity_log = np.array([])
+    save_log_time = 0
+    activity_log_path = "../files/results/"
+
+    if not os.path.exists(activity_log_path) :
+        os.makedirs(activity_log_path)
+
     while True:
         return_value, frame = vid.read()
         if not return_value :
             break
+        time_in_video = get_videotime(frame)
         image = Image.fromarray(frame)
         image, vehicle_labels, pedestrian_labels = yolo.detect_image(image)
         result = np.asarray(image)
@@ -226,35 +256,64 @@ def detect_video(yolo, video_path, output_path=""):
         # Display results
         height = result.shape[0]
         width = result.shape[1]
-        # Required classes for vehicle detection
-        # result = cv2.line(result,(int(width/2)-200,0),(int(width/2)-200,height),(255,0,0),5)
-        # result = cv2.line(result,(0,int(height/2)),(width,int(height/2)),(255,0,0),5)
 
+        
         current_vehicles = vehicle_labels.shape[0]
         current_pedestrians = pedestrian_labels.shape[0]
         
-        print(vehicle_labels, pedestrian_labels)
+        detection_threshold = int(width/2)-200 
+        vehicle_threshold = 15
+        pedestrain_threshold = 5
+
         # count if the vehicle has just entered
         for vehicle in vehicle_labels :
             col = (int(vehicle[1])+int(vehicle[3]))/2
             row = (int(vehicle[2])+int(vehicle[4]))/2
-            detection_threshold = int(width/2)-200 
-            difference_threshold = 15
-            if abs(col-detection_threshold) < difference_threshold :
-                total_vehicles+=1        
+            
+            if abs(col-detection_threshold) < vehicle_threshold :
+                if row>height/2 :
+                    total_left_vehicles+=1
+                else :
+                    total_right_vehicles+=1
+                vehicle = np.append(vehicle, time_in_video)   
+                activity_log = np.append(activity_log, vehicle)     
 
-        img = np.zeros((512,512,3), np.uint8)
+        for pedestrian in pedestrian_labels :
+            col = (int(pedestrian[1])+int(pedestrian[3]))/2
+            row = (int(pedestrian[2])+int(pedestrian[4]))/2
+            if abs(row-height/2) < pedestrain_threshold :
+                total_pedestrians+=1
+                pedestrian = np.append(pedestrian, time_in_video)
+                activity_log = np.append(activity_log, pedestrian)
+
+
+        size = 256
+        font_size = 0.6
+        img = np.zeros((size,size,3), np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(img,'Vehicles',(5,50), font, 1,(255,255,255),2,8)
-        cv2.putText(img,'Current : '+str(current_vehicles),(5,120), font, 0.9,(255,255,255),2,cv2.LINE_AA)
-        cv2.putText(img,'Total   : '+str(total_vehicles),(5,170), font, 0.9,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Vehicles',(5,30), font, font_size,(255,255,255),2,8)
+        cv2.putText(img,'Current Frame : '+str(current_vehicles),(0,60), font, font_size,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Left Lane : '+str(total_left_vehicles),(5,90), font, font_size,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Right Lane : '+str(total_right_vehicles),(5,120), font, font_size,(255,255,255),2,cv2.LINE_AA)
+        img = cv2.line(img,(5,130),(100,130),(255,255,255),1)
 
-        cv2.putText(img,'Pedestrians',(5,330), font, 1,(255,255,255),2,8)
-        cv2.putText(img,'Current : '+str(current_pedestrians),(5,400), font, 0.9,(255,255,255),2,cv2.LINE_AA)
-        cv2.putText(img,'Total   : '+str(total_pedestrians),(5,450), font, 0.9,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Pedestrians',(5,150), font, font_size,(255,255,255),2,8)
+        cv2.putText(img,'Current Frame : '+str(current_pedestrians),(5,180), font, font_size,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Total   : '+str(total_pedestrians),(5,210), font, font_size,(255,255,255),2,cv2.LINE_AA)
+        cv2.putText(img,'Total   : '+str(total_pedestrians),(5,240), font, font_size,(255,255,255),2,cv2.LINE_AA)
+        
 
         cv2.imshow('Traffic Analysis',img)
-        cv2.imshow("result", result)
+        image = np.array(image)
+        image[0:size,width-size:width] = img
+        cv2.imshow('result', image)
+
+        print(activity_log, save_log_time)
+        if(save_log_time%10) :
+            activity_log = np.array(activity_log)
+            np.savetxt(os.path.join(activity_log_path,"log.txt"), activity_log, fmt="%s")
+
+        save_log_time+=1
         if isOutput:
             out.write(result)
         if cv2.waitKey(1) & 0xFF == ord('q'):
