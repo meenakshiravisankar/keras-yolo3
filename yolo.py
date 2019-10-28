@@ -19,6 +19,7 @@ import os
 from keras.utils import multi_gpu_model
 
 import pytesseract
+import cv2
 
 class YOLO(object):
     _defaults = {
@@ -201,7 +202,6 @@ def get_videotime(frame) :
     return text
         
 def detect_video(yolo, video_path, output_path=""):
-    import cv2
     vid = cv2.VideoCapture(video_path)
     if not vid.isOpened():
         raise IOError("Couldn't open webcam or video")
@@ -218,6 +218,7 @@ def detect_video(yolo, video_path, output_path=""):
     fps = "FPS: ??"
     prev_time = timer()
 
+    # Initialising count of traffic participants
     current_vehicles = 0
     total_left_vehicles = 0
     total_right_vehicles = 0
@@ -257,15 +258,15 @@ def detect_video(yolo, video_path, output_path=""):
         height = result.shape[0]
         width = result.shape[1]
 
-        
         current_vehicles = vehicle_labels.shape[0]
         current_pedestrians = pedestrian_labels.shape[0]
         
+        # Location to tag participants
         detection_threshold = int(width/2)-200 
         vehicle_threshold = 15
         pedestrain_threshold = 5
 
-        # count if the vehicle has just entered
+        # count if the vehicle has crossed the location
         for vehicle in vehicle_labels :
             col = (int(vehicle[1])+int(vehicle[3]))/2
             row = (int(vehicle[2])+int(vehicle[4]))/2
@@ -278,6 +279,7 @@ def detect_video(yolo, video_path, output_path=""):
                 vehicle = np.append(vehicle, time_in_video)   
                 activity_log = np.append(activity_log, vehicle)     
 
+        # count if the pedestrian is on the zebra crossing
         for pedestrian in pedestrian_labels :
             col = (int(pedestrian[1])+int(pedestrian[3]))/2
             row = (int(pedestrian[2])+int(pedestrian[4]))/2
@@ -286,7 +288,7 @@ def detect_video(yolo, video_path, output_path=""):
                 pedestrian = np.append(pedestrian, time_in_video)
                 activity_log = np.append(activity_log, pedestrian)
 
-
+        # Figure for counts
         size = 256
         font_size = 0.6
         img = np.zeros((size,size,3), np.uint8)
@@ -302,13 +304,12 @@ def detect_video(yolo, video_path, output_path=""):
         cv2.putText(img,'Total   : '+str(total_pedestrians),(5,210), font, font_size,(255,255,255),2,cv2.LINE_AA)
         cv2.putText(img,'Total   : '+str(total_pedestrians),(5,240), font, font_size,(255,255,255),2,cv2.LINE_AA)
         
-
         cv2.imshow('Traffic Analysis',img)
         image = np.array(image)
         image[0:size,width-size:width] = img
         cv2.imshow('result', image)
 
-        print(activity_log, save_log_time)
+        # save log every 10 frames
         if(save_log_time%10) :
             activity_log = np.array(activity_log)
             np.savetxt(os.path.join(activity_log_path,"log.txt"), activity_log, fmt="%s")
