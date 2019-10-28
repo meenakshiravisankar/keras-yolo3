@@ -197,12 +197,18 @@ def detect_video(yolo, video_path, output_path=""):
     curr_fps = 0
     fps = "FPS: ??"
     prev_time = timer()
+
+    current_vehicles = 0
+    total_vehicles = 0
+    current_pedestrians = 0
+    total_pedestrians = 0
+    
     while True:
         return_value, frame = vid.read()
         if not return_value :
             break
         image = Image.fromarray(frame)
-        image, labels = yolo.detect_image(image)
+        image, vehicle_labels, pedestrian_labels = yolo.detect_image(image)
         result = np.asarray(image)
         curr_time = timer()
         exec_time = curr_time - prev_time
@@ -221,14 +227,21 @@ def detect_video(yolo, video_path, output_path=""):
         height = result.shape[0]
         width = result.shape[1]
         # Required classes for vehicle detection
-        result = cv2.line(result,(width-300,0),(width-300,height),(0,0,255),5)
-        result = cv2.line(result,(0,int(height/2)),(width,int(height/2)),(255,0,0),5)
+        # result = cv2.line(result,(int(width/2)-200,0),(int(width/2)-200,height),(255,0,0),5)
+        # result = cv2.line(result,(0,int(height/2)),(width,int(height/2)),(255,0,0),5)
 
-        print(labels)
-        current_vehicles = 0
-        total_vehicles = 0
-        current_pedestrians = 0
-        total_pedestrians = 0
+        current_vehicles = vehicle_labels.shape[0]
+        current_pedestrians = pedestrian_labels.shape[0]
+        
+        print(vehicle_labels, pedestrian_labels)
+        # count if the vehicle has just entered
+        for vehicle in vehicle_labels :
+            col = (int(vehicle[1])+int(vehicle[3]))/2
+            row = (int(vehicle[2])+int(vehicle[4]))/2
+            detection_threshold = int(width/2)-200 
+            difference_threshold = 15
+            if abs(col-detection_threshold) < difference_threshold :
+                total_vehicles+=1        
 
         img = np.zeros((512,512,3), np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
